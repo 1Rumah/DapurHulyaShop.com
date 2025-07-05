@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keranjang</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    .card { border: 1px solid #ccc; padding: 10px; margin: 10px 0; }
+    video { width: 100px; height: auto; vertical-align: middle; }
+    input { display: block; margin: 10px 0; padding: 6px; width: 300px; max-width: 100%; }
+    button { margin: 5px 5px 0 0; padding: 6px 10px; }
+  </style>
+</head>
+<body>
+
+<h2>🛒 Isi Keranjang</h2>
+<div id="cart-container"></div>
+
+<h3>Checkout</h3>
+<input type="text" id="nama" placeholder="Nama">
+<input type="text" id="alamat" placeholder="Alamat">
+<input type="text" id="hp" placeholder="No HP">
+<button onclick="checkout()">✅ Checkout> COD</button>
+<button onclick="hapusSemua()">🗑 Hapus Semua</button>
+<button onclick="window.location.href='index.html'">⬅ Kembali ke Belanja</button>
+
+<script src="https://app.sandbox.midtrans.com/snap/snap.js" data-client-key="YOUR_CLIENT_KEY"></script>
+<script>
+let cart = JSON.parse(localStorage.getItem('cart')) || [];
+
+function renderCart() {
+  const container = document.getElementById('cart-container');
+  container.innerHTML = '';
+  let total = 0;
+
+  cart.forEach((item, i) => {
+    total += item.qty * item.harga;
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.innerHTML = `
+      <video src="${item.video}" autoplay muted loop></video>
+      <b>${item.nama}</b><br>
+      Rp${item.harga.toLocaleString()} x ${item.qty}
+      <br>
+      <button onclick="ubahQty(${i}, 1)">➕</button>
+      <button onclick="ubahQty(${i}, -1)">➖</button>
+      <button onclick="hapusItem(${i})">🗑</button>
+    `;
+    container.appendChild(el);
+  });
+
+  const totalEl = document.createElement('h4');
+  totalEl.textContent = `Total: Rp${total.toLocaleString()}`;
+  container.appendChild(totalEl);
+}
+
+function ubahQty(index, perubahan) {
+  cart[index].qty += perubahan;
+  if (cart[index].qty <= 0) cart.splice(index, 1);
+  localStorage.setItem('cart', JSON.stringify(cart));
+  renderCart();
+}
+
+function hapusItem(index) {
+  cart.splice(index, 1);
+  localStorage.setItem('cart', JSON.stringify(cart));
+  renderCart();
+}
+
+function hapusSemua() {
+  if (confirm("Hapus semua item dari keranjang?")) {
+    cart = [];
+    localStorage.removeItem('cart');
+    renderCart();
+  }
+}
+
+async function checkout() {
+  const nama = document.getElementById('nama').value;
+  const alamat = document.getElementById('alamat').value;
+  const hp = document.getElementById('hp').value;
+
+  if (!nama || !alamat || !hp) return alert("Mohon lengkapi semua data.");
+
+  const total = cart.reduce((t, item) => t + item.harga * item.qty, 0);
+
+  // 1️⃣ Kirim ke Google Spreadsheet
+  fetch("https://script.google.com/macros/s/AKfycbyf1aP4fD2MC4_xQ1_vCe5xJu7gVjUeALm4TN9HA6AjIopJCnsWKPbqX1zamx8bYmT9CA/exec", {
+    method: "POST",
+    body: JSON.stringify({ nama, alamat, hp, cart }),
+    headers: { "Content-Type": "application/json" }
+  });
+
+  // 2️⃣ Kirim ke Telegram
+  const token = "7899907497:AAEl_W6PLu2ABwEJkKEyO3xra8ZFRaLZx7E";
+  const chat_id = "7691680740";
+  let message = `🛒 Order Baru:\nNama: ${nama}\nAlamat: ${alamat}\nHP: ${hp}\n`;
+  cart.forEach(item => {
+    message += `• ${item.nama} x${item.qty} - Rp${(item.harga * item.qty).toLocaleString()}\n`;
+  });
+  message += `Total: Rp${total.toLocaleString()}`;
+
+  fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id, text: message })
+  });
+
+  // 3️⃣ Midtrans Snap Payment
+  try {
+    const snapRes = await fetch("https://your-backend.com/get-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nama, hp, alamat, total })
+    }).then(res => res.json());
+
+    snap.pay(snapRes.snapToken, {
+      onSuccess: function() {
+        alert("Pembayaran berhasil!");
+        localStorage.removeItem('cart');
+        window.location.href = 'index.html';
+      },
+      onPending: function() {
+        alert("Menunggu pembayaran...");
+      },
+      onError: function() {
+        alert("Pembayaran gagal, coba lagi.");
+      }
+    });
+  } catch (err) {
+    alert("pembayaran COD Gagal, Silahkan Ganti Metode Pembayaran Anda");
+    console.error(err);
+  }
+}
+
+renderCart();
+</script>
+
+<!-- 🔽 Tambahan Form Metode Pembayaran -->
+<div class="form-group">
+  <label for="payment">Metode Pembayaran:</label><br>
+  <button class="toggle-button" onclick="togglePayment()">Pilih Metode</button>
+
+  <div class="payment-options" id="paymentOptions">
+    <a href="https://link.dana.id/minta?full_url=https://qr.dana.id/v1/281012012024112113444356" onclick="setMetode('DANA')" class="payment-option">
+      <img src="images/paymen (3).jpg" alt="COD">
+      <span></span>
+    </a>
+    <a href="#" onclick="setMetode('Shopee Pay')" class="payment-option">
+      <img src="images/paymen (1).jpg" alt="Shopee Pay">
+      <span></span>
+    </a>
+	 <a href="halaman pembayaran bca.html" onclick="setMetode('Bank BCA')" class="payment-option">
+      <img src="images/paymen (2).jpg" alt="Bank BCA">
+      <span></span>
+    </a>
+    <a href="#" onclick="setMetode('Bank BRI')" class="payment-option">
+      <img src="images/paymen (7).jpg" alt="Bank BRI">
+      <span></span>
+    </a>
+	 <a href="#" onclick="setMetode('Bank BSI')" class="payment-option">
+      <img src="images/paymen (4).jpg" alt="Bank BSI">
+      <span></span>
+    </a>
+	 <a href="#" onclick="setMetode('OVO')" class="payment-option">
+      <img src="images/paymen (5).jpg" alt="OVO">
+      <span></span>
+    </a>
+	 <a href="#" onclick="setMetode('BanK Jago')" class="payment-option">
+      <img src="images/paymen (6).jpg" alt="BanK Jago ">
+      <span></span>
+    </a>
+	
+	 <a href="#" onclick="setMetode('GOPAY')" class="payment-option">
+      <img src="images/paymen (8).jpg" alt="GOPAY">
+      <span></span>
+    </a>
+    <!-- Tambahkan metode lain sesuai kebutuhan... -->
+  </div>
+</div>
+<input type="hidden" id="metodeBayar" value="">
+
+
+
+<!-- ✅ Tambahkan CSS dan JS -->
+<style>
+  .form-group {
+    margin: 20px 0;
+  }
+
+  .toggle-button {
+    padding: 8px 12px;
+    background-color: #f63;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-bottom: 10px;
+  }
+
+  .payment-options {
+    display: none;
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .payment-option {
+   .payment-option {
+    background: #f0f0f0;
+    border-radius: 1px;
+    padding: 1px;
+    text-align: center;
+    text-decoration: none;
+    color: #000;
+    font-size: 12px;
+    transition: 0.2s;
+
+  }
+
+  .payment-option:hover {
+    background: #ddd;
+  }
+
+  .payment-option img {
+    width: 28px;
+    height: 28px;
+    margin-bottom: 4px;
+  }
+</style>
+
+<script>
+  function togglePayment() {
+    const el = document.getElementById("paymentOptions");
+    el.style.display = el.style.display === "grid" ? "none" : "grid";
+  }
+
+  function setMetode(nama) {
+    document.getElementById("metodeBayar").value = nama;
+    alert("Tunggu Sebentar pembayaran kaka Sedang Di Proses Via: " + nama);
+  }
+
+  function metodeBayar() {
+    const metode = document.getElementById("metodeBayar").value;
+
+    if (!metode) {
+      alert("Silakan pilih metode pembayaran terlebih dahulu.");
+      return;
+    }
+
+    // Tambahkan logika checkout lainnya di sini...
+    alert(`Checkout:\nNama: ${nama}\nAlamat: ${alamat}\nHP: ${hp}\nPembayaran: ${metode}`);
+  }
+
+ 
+</script>
+</body>
+</html>
